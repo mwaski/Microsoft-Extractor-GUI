@@ -1,12 +1,12 @@
 # M.E.G. — Microsoft Extractor GUI
 
-[![Build EXE](https://github.com/mwaski-SureFire-Cyber/M365_App/actions/workflows/build.yml/badge.svg)](https://github.com/mwaski-SureFire-Cyber/M365_App/actions/workflows/build.yml)
+
 
 A Windows GUI front-end for Microsoft 365 / Entra ID forensic log collection. M.E.G. provisions a hardened, certificate-authenticated Entra app registration in a tenant, then gives you a point-and-click command builder for the [Invictus-IR Microsoft-Extractor-Suite](https://github.com/invictus-ir/Microsoft-Extractor-Suite) — so you can scope, preview, and run incident-response collections without hand-writing PowerShell.
 
 > Built for SureFire Cyber DFIR engagements. Everything ships in a single self-contained PowerShell script: `Microsoft_Extractor_GUI.ps1`.
 
-![M.E.G. — Microsoft Extractor GUI](docs/screenshot.png)
+
 
 <!-- Add a screenshot at docs/screenshot.png (e.g. the M365 Command Builder tab). -->
 
