@@ -10,13 +10,14 @@ param(
 # ----------------------------------------
 if ($Help) {
     Write-Host "============================================================"
-    Write-Host "M365 App Install Script - Help"
+    Write-Host "Microsoft Extractor GUI - Help"
     Write-Host "============================================================"
     Write-Host ""
     Write-Host "USAGE:"
-    Write-Host "  .\M365_App_Install.ps1                         # Normal operation (Commercial cloud)"
-    Write-Host "  .\M365_App_Install.ps1 -NewCert                # Replace existing certificates with new one"
-    Write-Host "  .\M365_App_Install.ps1 -Help                   # Show this help message"
+    Write-Host "  .\Microsoft_Extractor_GUI.ps1                  # Launch the GUI (Commercial cloud)"
+    Write-Host "  .\Microsoft_Extractor_GUI.ps1 -NewCert         # Replace existing certificates with new one"
+    Write-Host "  .\Microsoft_Extractor_GUI.ps1 -ShowConsole     # Keep the console window visible behind the GUI"
+    Write-Host "  .\Microsoft_Extractor_GUI.ps1 -Help            # Show this help message"
     Write-Host ""
     Write-Host "PARAMETERS:"
     Write-Host "  -NewCert           Replaces any existing certificates with a new certificate"
@@ -25,6 +26,8 @@ if ($Help) {
     Write-Host "                     application already existed."
     Write-Host ""
     Write-Host "  -ShowConsole       Keeps the console window visible behind the GUI"
+    Write-Host ""
+    Write-Host "  -ConfigRoot        Root folder for tenant configs and output (default C:\Microsoft_Extractor_GUI)"
     Write-Host ""
     Write-Host "  -Help              Shows this help message and exits"
     Write-Host ""
@@ -64,7 +67,7 @@ $installerScriptText = @'
 param(
     [switch]$NewCert,
     [switch]$Help,
-    [string]$ConfigRoot = "C:\M365_App"
+    [string]$ConfigRoot = "C:\Microsoft_Extractor_GUI"
 )
 
 # ----------------------------------------
@@ -1430,11 +1433,6 @@ Add-Type -AssemblyName WindowsBase
                                     <CheckBox Name="cbMailboxAuditLog"    Content="MailboxAuditLog (Get-MailboxAuditLog)"/>
                                     <CheckBox Name="cbUALClassic"         Content="Unified Audit Log via EXO (Get-UAL)"/>
 
-                                    <TextBlock Text="EXO - Email" FontWeight="SemiBold" Margin="0,8,0,4"/>
-                                    <CheckBox Name="cbEmail"              Content="Email (Get-Email)"/>
-                                    <CheckBox Name="cbAttachment"         Content="Attachment (Get-Attachment)"/>
-                                    <CheckBox Name="cbShowEmail"          Content="Show Email (Show-Email)"/>
-
                                     <TextBlock Text="EXO - Mail Items Accessed" FontWeight="SemiBold" Margin="0,8,0,4"/>
                                     <CheckBox Name="cbSessions"           Content="Sessions (Get-Sessions)"/>
                                     <CheckBox Name="cbMessageIDs"         Content="MessageIDs (Get-MessageIDs)"/>
@@ -1477,6 +1475,11 @@ Add-Type -AssemblyName WindowsBase
                                     <CheckBox Name="cbGraphAudit"         Content="GraphEntraAuditLogs (Get-GraphEntraAuditLogs)"/>
                                     <CheckBox Name="cbGraphSignin"        Content="GraphEntraSignInLogs (Get-GraphEntraSignInLogs)"/>
                                     <CheckBox Name="cbMailboxRulesGraph"  Content="MailboxRules via Graph (Get-MailboxRulesGraph)"/>
+
+                                    <TextBlock Text="Graph - Email" FontWeight="SemiBold" Margin="0,8,0,4"/>
+                                    <CheckBox Name="cbEmail"              Content="Email (Get-Email)"/>
+                                    <CheckBox Name="cbAttachment"         Content="Attachment (Get-Attachment)"/>
+                                    <CheckBox Name="cbShowEmail"          Content="Show Email (Show-Email)"/>
 
                                     <Separator Margin="0,8,0,8"/>
 
@@ -1727,7 +1730,7 @@ Add-Type -AssemblyName WindowsBase
                                 <CheckBox  Name="cbEmailDownloadDuplicates" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,4,0,4" Content="-DownloadDuplicates (Get-Email)" FontWeight="Normal"/>
 
                                 <TextBlock Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,12,0,0" TextWrapping="Wrap" FontWeight="Normal"
-                                           Text="-InternetMessageId is mandatory for Get-Email, Get-Attachment, and Show-Email. If blank, those cmdlets are skipped and a warning shows."/>
+                                           Text="-InternetMessageId is mandatory for Get-Attachment and Show-Email; Get-Email accepts it or -inputFile. If missing, those cmdlets are skipped and a warning shows."/>
                             </Grid>
                         </Expander>
 
@@ -1902,6 +1905,7 @@ Add-Type -AssemblyName WindowsBase
 
                     <DockPanel Grid.Column="1">
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,6,6,6">
+                            <Button Name="btnSetupCheck"     Content="Check for Updates"  Width="140" Margin="0,0,6,0"/>
                             <Button Name="btnSetupInstall"   Content="Install Selected"   Width="140" Margin="0,0,6,0"/>
                             <Button Name="btnSetupUpdate"    Content="Update Selected"    Width="140" Margin="0,0,6,0"/>
                             <Button Name="btnSetupUninstall" Content="Uninstall Selected" Width="140" Margin="0,0,6,0"/>
@@ -1974,9 +1978,6 @@ $exoCommands = [ordered]@{
     cbAdminAuditLog      = 'Get-AdminAuditLog'
     cbMailboxAuditLog    = 'Get-MailboxAuditLog'
     cbUALClassic         = 'Get-UAL'
-    cbEmail              = 'Get-Email'
-    cbAttachment         = 'Get-Attachment'
-    cbShowEmail          = 'Show-Email'
     cbSessions           = 'Get-Sessions'
     cbMessageIDs         = 'Get-MessageIDs'
     cbTransportRules     = 'Get-TransportRules'
@@ -2007,6 +2008,10 @@ $graphCommands = [ordered]@{
     cbGraphAudit        = 'Get-GraphEntraAuditLogs'
     cbGraphSignin       = 'Get-GraphEntraSignInLogs'
     cbMailboxRulesGraph = 'Get-MailboxRulesGraph'
+    # Get-Email/Get-Attachment/Show-Email call Invoke-MgGraphRequest (Graph, not EXO)
+    cbEmail             = 'Get-Email'
+    cbAttachment        = 'Get-Attachment'
+    cbShowEmail         = 'Show-Email'
 }
 
 $setupItems = [ordered]@{
@@ -2178,7 +2183,18 @@ function Split-MultiValue {
         [switch]$CommaOnly
     )
     $pattern = if ($CommaOnly) { '[,;]+' } else { '[\s,;]+' }
-    @($Raw -split $pattern | ForEach-Object { ($_ -replace '["'']', '').Trim() } | Where-Object { $_ })
+    # Unary comma: a one-element array otherwise unrolls to a bare string on return,
+    # and callers that index [0] would get the first character
+    ,@($Raw -split $pattern | ForEach-Object { ($_ -replace '["'']', '').Trim() } | Where-Object { $_ })
+}
+
+# Graph filters internetMessageId with an exact 'eq' match and the stored value keeps
+# its RFC 2822 angle brackets - without <> the query silently matches nothing
+function Format-InternetMessageId {
+    param([string]$Raw)
+    $id = $Raw.Trim().Trim('<', '>').Trim()
+    if (-not $id) { return '' }
+    "<$id>"
 }
 
 # One quoted comma-separated string: "a@x.com,b@x.com"
@@ -2334,16 +2350,19 @@ function Get-CmdletOwnFlags {
             if ($controls.cbUalClassicAuditDataOnly.IsChecked) { [void]$sb.Append(' -AuditDataOnly') }
         }
         'Get-Email' {
-            if ($controls.txtEmailInternetMessageId.Text) { [void]$sb.Append(" -InternetMessageId `"$($controls.txtEmailInternetMessageId.Text)`"") }
+            $imid = Format-InternetMessageId $controls.txtEmailInternetMessageId.Text
+            if ($imid)                                    { [void]$sb.Append(" -InternetMessageId `"$imid`"") }
             if ($controls.txtEmailInputFile.Text)         { [void]$sb.Append(" -inputFile `"$($controls.txtEmailInputFile.Text)`"") }
             if ($controls.cbEmailAttachment.IsChecked)        { [void]$sb.Append(' -Attachment $true') }
             if ($controls.cbEmailDownloadDuplicates.IsChecked){ [void]$sb.Append(' -DownloadDuplicates $true') }
         }
         'Get-Attachment' {
-            if ($controls.txtEmailInternetMessageId.Text) { [void]$sb.Append(" -InternetMessageId `"$($controls.txtEmailInternetMessageId.Text)`"") }
+            $imid = Format-InternetMessageId $controls.txtEmailInternetMessageId.Text
+            if ($imid) { [void]$sb.Append(" -InternetMessageId `"$imid`"") }
         }
         'Show-Email' {
-            if ($controls.txtEmailInternetMessageId.Text) { [void]$sb.Append(" -InternetMessageId `"$($controls.txtEmailInternetMessageId.Text)`"") }
+            $imid = Format-InternetMessageId $controls.txtEmailInternetMessageId.Text
+            if ($imid) { [void]$sb.Append(" -InternetMessageId `"$imid`"") }
         }
         'Get-Sessions' {
             # Module compares -IP with -eq against ClientIPAddress: single IP only
@@ -2390,7 +2409,13 @@ function Test-CmdletPrerequisites {
 
     switch ($Cmdlet) {
         { $_ -in 'Get-Email', 'Get-Attachment', 'Show-Email' } {
-            if (-not $controls.txtEmailInternetMessageId.Text) { return "$Cmdlet skipped - set -InternetMessageId on the Email Options tab." }
+            # Match what Get-CmdletOwnFlags will actually emit, not the raw textbox
+            $imidSet = [bool](Format-InternetMessageId $controls.txtEmailInternetMessageId.Text)
+            if ($Cmdlet -eq 'Get-Email') {
+                # -inputFile is a Get-Email-only alternative to -InternetMessageId
+                if (-not $imidSet -and -not $controls.txtEmailInputFile.Text.Trim()) { return "$Cmdlet skipped - set -InternetMessageId or -inputFile on the Email Options tab." }
+            }
+            elseif (-not $imidSet) { return "$Cmdlet skipped - set -InternetMessageId on the Email Options tab." }
             if ((Split-MultiValue $controls.txtGlobalUserId.Text).Count -eq 0) { return "$Cmdlet skipped - the module requires -UserIds; set the Global Options -UserIds field." }
         }
     }
@@ -2721,49 +2746,291 @@ function Wrap-WithStaging {
     $sb.ToString()
 }
 
-function Invoke-SetupAction {
-    param([ValidateSet('Install','Update','Uninstall')][string]$Action)
+# ----------------------------------------
+# Module management helpers (M.E.G Setup tab)
+# Pure PowerShellGet logic - no $controls/WPF. Injected into the setup worker
+# runspace by name; keep param() inside the body (rehydration/tests rely on it).
+# ----------------------------------------
+function Get-GraphSubmoduleNames {
+    param([Parameter(Mandatory)][ValidateSet('Graph','Beta')][string]$Family)
 
-    $selected = @()
-    foreach ($key in $setupItems.Keys) {
-        if ($controls[$key] -and $controls[$key].IsChecked) {
-            $selected += $setupItems[$key]
+    $all = @(Get-InstalledModule -Name 'Microsoft.Graph.*' -ErrorAction SilentlyContinue)
+    $names = switch ($Family) {
+        'Graph' { $all | Where-Object { $_.Name -notlike 'Microsoft.Graph.Beta*' } }
+        'Beta'  { $all | Where-Object { $_.Name -like 'Microsoft.Graph.Beta.*' } }
+    }
+    # Authentication last: every other submodule depends on it, so it must be
+    # uninstalled after them
+    ,@($names | Select-Object -ExpandProperty Name -Unique | Sort-Object |
+        Sort-Object { if ($_ -eq 'Microsoft.Graph.Authentication') { 1 } else { 0 } })
+}
+
+function Get-ModuleUpdateStatus {
+    param([Parameter(Mandatory)][string]$Name)
+
+    # PowerShellGet Version values can be strings with prerelease suffixes;
+    # strip the suffix and cast defensively
+    $toVersion = {
+        param($v)
+        $base = ("$v" -split '-')[0]
+        $out = $null
+        if ([version]::TryParse($base, [ref]$out)) { $out } else { $null }
+    }
+
+    $installed = @(Get-InstalledModule -Name $Name -AllVersions -ErrorAction SilentlyContinue |
+        Sort-Object { & $toVersion $_.Version } -Descending)
+    $highest = if ($installed.Count -gt 0) { $installed[0] } else { $null }
+
+    $scope = $null
+    if ($installed.Count -gt 0) {
+        $scopes = @($installed | ForEach-Object {
+            if ("$($_.InstalledLocation)" -like "$env:ProgramFiles*") { 'AllUsers' } else { 'CurrentUser' }
+        } | Select-Object -Unique)
+        if ($scopes.Count -gt 1) { $scope = 'Mixed' } else { $scope = $scopes[0] }
+    }
+
+    $found = $null
+    try { $found = Find-Module -Name $Name -Repository PSGallery -ErrorAction Stop }
+    catch { $found = $null }
+
+    $latestV  = if ($found)   { & $toVersion $found.Version }   else { $null }
+    $highestV = if ($highest) { & $toVersion $highest.Version } else { $null }
+
+    $status =
+        if ($installed.Count -eq 0) { 'NotInstalled' }
+        elseif (-not $found)        { 'GalleryUnreachable' }
+        elseif ($latestV -and $highestV) {
+            if ($latestV -gt $highestV) { 'UpdateAvailable' } else { 'Current' }
+        }
+        else {
+            # Unparseable version on either side: fall back to string equality
+            if ("$($found.Version)" -eq "$($highest.Version)") { 'Current' } else { 'UpdateAvailable' }
+        }
+
+    @{
+        Name              = $Name
+        InstalledVersions = @($installed | ForEach-Object { "$($_.Version)" })
+        HighestInstalled  = if ($highest) { "$($highest.Version)" } else { $null }
+        Scope             = $scope
+        Latest            = if ($found) { "$($found.Version)" } else { $null }
+        Status            = $status
+        StaleCount        = [Math]::Max(0, $installed.Count - 1)
+    }
+}
+
+function Remove-OldModuleVersions {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$KeepVersion,
+        [Parameter(Mandatory)][System.Text.StringBuilder]$Log
+    )
+
+    $removed = 0
+    $warned  = 0
+    $all = @()
+    try { $all = @(Get-InstalledModule -Name $Name -AllVersions -ErrorAction SilentlyContinue) }
+    catch {
+        [void]$Log.AppendLine("[WARN] $Name : could not enumerate installed versions - $($_.Exception.Message)")
+        $warned++
+    }
+    foreach ($m in $all) {
+        if ("$($m.Version)" -eq $KeepVersion) { continue }
+        try {
+            Uninstall-Module -Name $Name -RequiredVersion "$($m.Version)" -Force -ErrorAction Stop
+            [void]$Log.AppendLine("[OK]   $Name $($m.Version) removed (superseded by $KeepVersion).")
+            $removed++
+        }
+        catch {
+            [void]$Log.AppendLine("[WARN] $Name $($m.Version) could not be removed - $($_.Exception.Message) If this is the Program Files copy, remove it from an elevated session.")
+            $warned++
+        }
+    }
+    @{ Removed = $removed; Warned = $warned }
+}
+
+function Invoke-ModuleUpdate {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][System.Text.StringBuilder]$Log
+    )
+
+    $status = Get-ModuleUpdateStatus -Name $Name
+
+    switch ($status.Status) {
+        'NotInstalled' {
+            [void]$Log.AppendLine("[SKIP] $Name not installed - use Install Selected first.")
+            return
+        }
+        'GalleryUnreachable' {
+            [void]$Log.AppendLine("[WARN] $Name : could not query PSGallery for the latest version.")
+            return
+        }
+        'UpdateAvailable' {
+            [void]$Log.AppendLine("[RUN]  Install-Module -Name $Name -Scope CurrentUser -Force -AllowClobber  ($($status.HighestInstalled) -> $($status.Latest))")
+            Install-Module -Name $Name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+            [void]$Log.AppendLine("[OK]   $Name updated $($status.HighestInstalled) -> $($status.Latest).")
+            if ($status.Scope -in @('AllUsers','Mixed')) {
+                [void]$Log.AppendLine("[WARN] $Name $($status.HighestInstalled) also exists in Program Files (AllUsers); the new CurrentUser $($status.Latest) takes precedence. Remove the old copy from an elevated session.")
+            }
+            [void](Remove-OldModuleVersions -Name $Name -KeepVersion $status.Latest -Log $Log)
+        }
+        'Current' {
+            [void]$Log.AppendLine("[SKIP] $Name already current at $($status.HighestInstalled).")
+            if ($status.StaleCount -gt 0) {
+                [void]$Log.AppendLine("[RUN]  Removing $($status.StaleCount) stale version(s) of $Name.")
+                [void](Remove-OldModuleVersions -Name $Name -KeepVersion $status.HighestInstalled -Log $Log)
+            }
         }
     }
 
-    if ($selected.Count -eq 0) {
-        $controls.txtErrors.Text = 'Nothing selected — tick one or more items in the M.E.G Setup tab.'
-        return
+    # Graph meta-modules: also sweep stale versions of every installed submodule
+    $family = $null
+    if ($Name -eq 'Microsoft.Graph') { $family = 'Graph' }
+    elseif ($Name -eq 'Microsoft.Graph.Beta') { $family = 'Beta' }
+    if ($family) {
+        foreach ($sub in (Get-GraphSubmoduleNames -Family $family)) {
+            $subAll = @(Get-InstalledModule -Name $sub -AllVersions -ErrorAction SilentlyContinue |
+                Sort-Object { [version](("$($_.Version)" -split '-')[0]) } -Descending)
+            if ($subAll.Count -gt 1) {
+                [void](Remove-OldModuleVersions -Name $sub -KeepVersion "$($subAll[0].Version)" -Log $Log)
+            }
+        }
+    }
+}
+
+function Invoke-ModuleUninstall {
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][System.Text.StringBuilder]$Log
+    )
+
+    $family = $null
+    if ($Name -eq 'Microsoft.Graph') { $family = 'Graph' }
+    elseif ($Name -eq 'Microsoft.Graph.Beta') { $family = 'Beta' }
+
+    # Meta-modules first (submodules are their dependencies), Authentication
+    # last (everything depends on it) - Get-GraphSubmoduleNames orders it last
+    $targets = @($Name)
+    if ($family) {
+        $subs = Get-GraphSubmoduleNames -Family $family
+        if ($family -eq 'Graph') {
+            $betaRemains = @(Get-InstalledModule -Name 'Microsoft.Graph.Beta*' -ErrorAction SilentlyContinue).Count -gt 0
+            if ($betaRemains -and ($subs -contains 'Microsoft.Graph.Authentication')) {
+                $subs = @($subs | Where-Object { $_ -ne 'Microsoft.Graph.Authentication' })
+                [void]$Log.AppendLine("[INFO] Keeping Microsoft.Graph.Authentication - installed Microsoft.Graph.Beta modules depend on it.")
+            }
+        }
+        elseif ($family -eq 'Beta') {
+            # If no non-Beta Graph module remains, Authentication would be orphaned
+            $graphRemains = @(Get-InstalledModule -Name 'Microsoft.Graph' -ErrorAction SilentlyContinue).Count -gt 0 -or
+                            @(Get-GraphSubmoduleNames -Family 'Graph' | Where-Object { $_ -ne 'Microsoft.Graph.Authentication' }).Count -gt 0
+            if (-not $graphRemains -and @(Get-InstalledModule -Name 'Microsoft.Graph.Authentication' -ErrorAction SilentlyContinue).Count -gt 0) {
+                $subs = @($subs) + @('Microsoft.Graph.Authentication')
+            }
+        }
+        [void]$Log.AppendLine("[INFO] $Name is a meta-module - also removing $(@($subs).Count) submodule(s).")
+        $targets = @($targets) + @($subs)
+    }
+
+    foreach ($t in $targets) {
+        if (-not (Get-InstalledModule -Name $t -ErrorAction SilentlyContinue)) {
+            [void]$Log.AppendLine("[SKIP] $t not installed.")
+            continue
+        }
+        try {
+            Uninstall-Module -Name $t -AllVersions -Force -ErrorAction Stop
+            [void]$Log.AppendLine("[OK]   $t uninstalled.")
+        }
+        catch {
+            # One stuck version must not keep the rest installed - retry per version
+            $failedCount = 0
+            foreach ($v in @(Get-InstalledModule -Name $t -AllVersions -ErrorAction SilentlyContinue)) {
+                try { Uninstall-Module -Name $t -RequiredVersion "$($v.Version)" -Force -ErrorAction Stop }
+                catch {
+                    $failedCount++
+                    [void]$Log.AppendLine("[WARN] $t $($v.Version) could not be removed - $($_.Exception.Message) If this is the Program Files copy, remove it from an elevated session.")
+                }
+            }
+            if ($failedCount -eq 0) { [void]$Log.AppendLine("[OK]   $t uninstalled (per-version).") }
+        }
+    }
+}
+
+function Invoke-SetupAction {
+    param([ValidateSet('Install','Update','Uninstall','Check')][string]$Action)
+
+    $selected = @()
+    if ($Action -eq 'Check') {
+        # Check is read-only and surveys everything, regardless of checkboxes
+        foreach ($v in $setupItems.Values) { $selected += $v }
+    }
+    else {
+        foreach ($key in $setupItems.Keys) {
+            if ($controls[$key] -and $controls[$key].IsChecked) {
+                $selected += $setupItems[$key]
+            }
+        }
+        if ($selected.Count -eq 0) {
+            $controls.txtErrors.Text = 'Nothing selected — tick one or more items in the M.E.G Setup tab.'
+            return
+        }
     }
     $controls.txtErrors.Text = ''
 
-    $confirm = [System.Windows.MessageBox]::Show(
-        "Run $Action for $($selected.Count) item(s) in this session (CurrentUser scope)?",
-        "M.E.G Setup - $Action",
-        [System.Windows.MessageBoxButton]::YesNo,
-        [System.Windows.MessageBoxImage]::Question)
-    if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
+    if ($Action -ne 'Check') {
+        $confirmText = "Run $Action for $($selected.Count) item(s) in this session (CurrentUser scope)?"
+        if ($Action -eq 'Update') {
+            $confirmText += " Older side-by-side versions are removed after a successful update."
+        }
+        if ($Action -eq 'Uninstall' -and @($selected | Where-Object { $_.Name -in 'Microsoft.Graph','Microsoft.Graph.Beta' }).Count -gt 0) {
+            $confirmText += " Graph meta-modules are removed together with their Microsoft.Graph.* submodules."
+        }
+        $confirm = [System.Windows.MessageBox]::Show(
+            $confirmText,
+            "M.E.G Setup - $Action",
+            [System.Windows.MessageBoxButton]::YesNo,
+            [System.Windows.MessageBoxImage]::Question)
+        if ($confirm -ne [System.Windows.MessageBoxResult]::Yes) { return }
+    }
 
     # Flatten selection to plain data for the worker runspace
     $items = @(foreach ($i in $selected) { @{ Name = [string]$i.Name; Type = [string]$i.Type } })
+
+    # The worker runspace does not inherit script functions - ship definitions
+    $helpers = @{}
+    foreach ($h in @('Get-GraphSubmoduleNames','Get-ModuleUpdateStatus','Remove-OldModuleVersions','Invoke-ModuleUpdate','Invoke-ModuleUninstall')) {
+        $helpers[$h] = (Get-Command $h -CommandType Function).Definition
+    }
 
     $controls.txtSetupCommands.Text = "# M.E.G Setup - $Action starting..."
     Set-Status "M.E.G Setup: $Action running..."
 
     Start-AsyncTask `
-        -TaskArgs @{ Action = $Action; Items = $items } `
-        -DisableButtons @('btnSetupInstall', 'btnSetupUpdate', 'btnSetupUninstall') `
+        -TaskArgs @{ Action = $Action; Items = $items; Helpers = $helpers } `
+        -DisableButtons @('btnSetupCheck','btnSetupInstall','btnSetupUpdate','btnSetupUninstall') `
         -Work {
             param($Sync, $TaskArgs)
 
             $Action = $TaskArgs.Action
+            foreach ($kv in $TaskArgs.Helpers.GetEnumerator()) {
+                Set-Item -Path "function:$($kv.Key)" -Value ([scriptblock]::Create($kv.Value))
+            }
             $log = New-Object System.Text.StringBuilder
             [void]$log.AppendLine("# M.E.G Setup - $Action (CurrentUser scope)")
             [void]$log.AppendLine('')
+            if ($Action -eq 'Check') {
+                [void]$log.AppendLine("[INFO] GUI PowerShell: $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)")
+                $userModDir = if ($PSVersionTable.PSEdition -eq 'Core') { 'PowerShell\Modules' } else { 'WindowsPowerShell\Modules' }
+                [void]$log.AppendLine("[INFO] CurrentUser installs target: $(Join-Path ([Environment]::GetFolderPath('MyDocuments')) $userModDir)")
+                if ($PSVersionTable.PSEdition -eq 'Core') {
+                    [void]$log.AppendLine("[WARN] M.E.G is running under PowerShell 7 - Setup installs land in Documents\PowerShell\Modules, which the Windows PowerShell 5.1 EXO window cannot see.")
+                }
+                [void]$log.AppendLine('')
+            }
             $Sync.Log = $log.ToString()
 
             $hasPsItem = $TaskArgs.Items | Where-Object { $_.Type -eq 'Module' -or $_.Type -eq 'Script' }
-            if ($hasPsItem) {
+            if ($hasPsItem -and $Action -ne 'Check') {
                 try {
                     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force -ErrorAction Stop
                     [void]$log.AppendLine('[INFO] Process execution policy set to Bypass.')
@@ -2771,6 +3038,8 @@ function Invoke-SetupAction {
                 catch {
                     [void]$log.AppendLine("[WARN] Could not set execution policy: $($_.Exception.Message)")
                 }
+            }
+            if ($hasPsItem) {
                 try {
                     Import-Module PackageManagement -ErrorAction Stop
                     Import-Module PowerShellGet     -ErrorAction Stop
@@ -2806,36 +3075,42 @@ function Invoke-SetupAction {
                                     $Sync.Log = $log.ToString()
                                     Install-Module -Name $name -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
                                     [void]$log.AppendLine("[OK]   $name installed.")
-                                }
-                                'Update' {
-                                    $installed = Get-InstalledModule -Name $name -AllVersions -ErrorAction SilentlyContinue |
-                                                 Sort-Object Version -Descending | Select-Object -First 1
-                                    if (-not $installed) {
-                                        [void]$log.AppendLine("[SKIP] $name not installed - use Install Selected first.")
+                                    # Repeated installs must not accumulate versions
+                                    $postStatus = Get-ModuleUpdateStatus -Name $name
+                                    if ($postStatus.HighestInstalled) {
+                                        [void](Remove-OldModuleVersions -Name $name -KeepVersion $postStatus.HighestInstalled -Log $log)
                                     }
-                                    else {
-                                        $latest = $null
-                                        try { $latest = Find-Module -Name $name -Repository PSGallery -ErrorAction Stop }
-                                        catch { [void]$log.AppendLine("[WARN] $name : could not query PSGallery - $($_.Exception.Message)") }
-
-                                        if ($latest) {
-                                            if ([version]$latest.Version -le [version]$installed.Version) {
-                                                [void]$log.AppendLine("[SKIP] $name already current at $($installed.Version).")
+                                }
+                                'Update'    { Invoke-ModuleUpdate -Name $name -Log $log }
+                                'Uninstall' { Invoke-ModuleUninstall -Name $name -Log $log }
+                                'Check' {
+                                    $s = Get-ModuleUpdateStatus -Name $name
+                                    $installedDesc = 'not installed'
+                                    if ($s.Status -ne 'NotInstalled') {
+                                        $installedDesc = "installed $($s.HighestInstalled) ($($s.Scope))"
+                                        if ($s.StaleCount -gt 0) { $installedDesc += " +$($s.StaleCount) stale" }
+                                    }
+                                    $latestDesc = 'latest ?'
+                                    if ($s.Latest) { $latestDesc = "latest $($s.Latest)" }
+                                    $verdict = switch ($s.Status) {
+                                        'Current'            { 'current' }
+                                        'UpdateAvailable'    { "UPDATE AVAILABLE $($s.HighestInstalled) -> $($s.Latest)" }
+                                        'NotInstalled'       { '-' }
+                                        'GalleryUnreachable' { 'gallery unreachable' }
+                                    }
+                                    [void]$log.AppendLine(("{0,-28} {1,-38} {2,-16} {3}" -f $name, $installedDesc, $latestDesc, $verdict))
+                                    if ($name -in 'Microsoft.Graph','Microsoft.Graph.Beta') {
+                                        $fam = 'Graph'
+                                        if ($name -eq 'Microsoft.Graph.Beta') { $fam = 'Beta' }
+                                        $subs = Get-GraphSubmoduleNames -Family $fam
+                                        if ($subs.Count -gt 0) {
+                                            $staleSubs = 0
+                                            foreach ($sub in $subs) {
+                                                $staleSubs += [Math]::Max(0, @(Get-InstalledModule -Name $sub -AllVersions -ErrorAction SilentlyContinue).Count - 1)
                                             }
-                                            else {
-                                                [void]$log.AppendLine("[RUN]  Update-Module -Name $name -Force  ($($installed.Version) -> $($latest.Version))")
-                                                $Sync.Log = $log.ToString()
-                                                Update-Module -Name $name -Force -ErrorAction Stop
-                                                [void]$log.AppendLine("[OK]   $name updated $($installed.Version) -> $($latest.Version).")
-                                            }
+                                            [void]$log.AppendLine(("{0,-28} {1} submodule(s) installed, {2} stale submodule version(s)" -f '', $subs.Count, $staleSubs))
                                         }
                                     }
-                                }
-                                'Uninstall' {
-                                    [void]$log.AppendLine("[RUN]  Uninstall-Module -Name $name -AllVersions -Force")
-                                    $Sync.Log = $log.ToString()
-                                    Uninstall-Module -Name $name -AllVersions -Force -ErrorAction Stop
-                                    [void]$log.AppendLine("[OK]   $name uninstalled.")
                                 }
                             }
                         }
@@ -3224,6 +3499,7 @@ $controls.btnSetupSelectNone.Add_Click({
     }
 })
 
+$controls.btnSetupCheck.Add_Click({ Invoke-SetupAction -Action 'Check' })
 $controls.btnSetupInstall.Add_Click({ Invoke-SetupAction -Action 'Install' })
 $controls.btnSetupUpdate.Add_Click({ Invoke-SetupAction -Action 'Update' })
 $controls.btnSetupUninstall.Add_Click({ Invoke-SetupAction -Action 'Uninstall' })
@@ -3386,8 +3662,31 @@ $window.Add_Closing({
 })
 
 # ----------------------------------------
+# Temp script cleanup
+# ----------------------------------------
+# Execute / Install / Uninstall write generated .ps1 files to %TEMP% and launch
+# them in separate -NoExit windows, so they can't be deleted inline. Sweep
+# leftovers from previous runs at startup. The age guard avoids deleting a file
+# that a window just launched (or a concurrent GUI instance) may still be reading.
+function Clear-StaleTempScripts {
+    $patterns = @(
+        'M365_GUI_Graph_*.ps1',
+        'M365_GUI_EXO_*.ps1',
+        'M365_App_Install_*.ps1',
+        'M365_App_Uninstall_*.ps1'
+    )
+    $cutoff = (Get-Date).AddMinutes(-10)
+    foreach ($pattern in $patterns) {
+        Get-ChildItem -Path $env:TEMP -Filter $pattern -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -lt $cutoff } |
+            ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# ----------------------------------------
 # Initial state
 # ----------------------------------------
+Clear-StaleTempScripts
 $script:tenantConfigs = @()
 Update-TenantList
 Update-ExpanderStates
