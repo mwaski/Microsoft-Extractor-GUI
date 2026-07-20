@@ -1,0 +1,36 @@
+name: Build EXE
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure PowerShell available
+        uses: actions/setup-powershell@v2
+
+      - name: Install ps2exe module
+        shell: pwsh
+        run: |
+          Install-Module -Name ps2exe -Force -Scope CurrentUser
+
+      - name: Build EXE from script
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          Import-Module ps2exe -Force
+          Invoke-PS2EXE -InputFile Microsoft_Extractor_GUI.ps1 -OutputFile dist\Microsoft_Extractor_GUI.exe -NoConsole
+
+      - name: Upload built EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Microsoft_Extractor_GUI.exe
+          path: dist/Microsoft_Extractor_GUI.exe
